@@ -1,54 +1,54 @@
+import os
 import pandas as pd
-from rapidfuzz import fuzz
+import numpy as np
+from rapidfuzz import process,fuzz
 
-# Load Excel file into a DataFrame
-df = pd.read_excel('book1.xlsx', sheet_name='Sheet1')
+def loadFile( fileName ):
+    # Load Excel file into a DataFrame
+    return pd.read_excel( fileName, sheet_name='Sheet1' )
 
-# Get the column of interest
-column_name = 'Case description'
-column = df.iloc[:, 0].tolist()
+def getColumn( df, column_name):
+    # Get the column of interest from the input file
+    return df.loc[:, column_name].tolist()
 
-# Calculate the similarity between each pair of strings in the column
-similarities = []
-for i in range(len(column)):
-    for j in range(i+1, len(column)):
-        similarity = fuzz.token_sort_ratio(column[i], column[j])
-        print( i, j, similarity)
-        similarities.append((i, j, similarity))
+def get_similarities(elements, scorer, score_cutoff):
+    # Create a list of lists to store the results
+    results = [[name, [], 0] for name in elements]
+    # Get the similar strings
+    similarity_check = process.cdist(elements,elements, scorer=getattr(fuzz, scorer), score_cutoff=float(score_cutoff), workers=-1)
 
-# Create a dictionary to store the groups
-groups = {}
-for i, string in enumerate(column):
-    group_id = None
-    for j, k, similarity in similarities:
-        print(i, j, k, similarity)
-        if i in (j, k) and similarity >= 60:
-            print("group_id : ", group_id)
-            if group_id is None:
-                print("here 2")
-                group_id = j if i == k else k
-                print(group_id)
-            else:
-                print("here 3")
-                # if group_id not in groups:
-                #     groups[group_id] = []
-                groups[group_id].append(i) #TODO: this is not working
-    if group_id is None:
-        print("here 4")
-        groups[i] = [i]
+    duplicates_list = []
+    for distances in similarity_check:
+        # Get indices of duplicates
+        indices = np.argwhere(~np.isin(distances, [100, 0])).flatten()
+        # Get names from indices
+        names = list(map(elements.__getitem__, indices))
+        duplicates_list.append(names)
 
-# Create a new DataFrame with the grouped rows
-grouped_rows = []
-for group_id, indices in groups.items():
-    group_strings = [column[i] for i in indices]
-    grouped_row = {
-        column_name: '; '.join(group_strings),
-        'Group ID': group_id,
-        'Group Size': len(indices),
-        'Similar case descriptions': [df.loc[i, 'SAP error opening form'] for i in indices]
-    }
-    grouped_rows.append(grouped_row)
-grouped_df = pd.DataFrame(grouped_rows)
+    # Create dataframe using the data generated above
+    df = pd.DataFrame({'name': elements, 'similarities': duplicates_list})
+    df['similarity_count'] = df.similarities.str.len()
+    return df
 
-# Save the grouped DataFrame to a new Excel file
-grouped_df.to_excel('example_grouped.xlsx', index=False)
+def createOutputFile( df, file_path ):
+    # Create a new Excel file
+    output_file_path = os.path.splitext(file_path)[0] + '_output.xlsx'
+    df.to_excel(output_file_path, index=False)
+    print(f"Successfully created file {output_file_path}")
+
+def main():
+    file_path = input("Enter the file path: ")
+    try:
+        df = loadFile(file_path)
+        print("columns found: ", df.columns)
+        column_number = input("Enter the column name to find similaries in: ")
+        element = getColumn(df, column_number)
+        score_threshold = input("Enter the similarity threshold to apply ( 0 - 100 ): ")
+        scorer = input("Enter the scorer to use ( token_set_ratio, token_sort_ratio, partial_ratio, partial_token_set_ratio, partial_token_sort_ratio, WRatio, QRatio ): ")
+        df = get_similarities(element, scorer, score_threshold)
+        createOutputFile(df, file_path)
+        
+    except FileNotFoundError:
+        print(f"Error: File {file_path} not found.")
+
+main()
